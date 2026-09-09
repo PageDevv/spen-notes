@@ -15,7 +15,7 @@
   <!-- Главный бесконечный холст для S Pen -->
   <canvas id="noteCanvas"></canvas>
 
-  <!-- Верхняя панель (адаптирована под портретный режим) -->
+  <!-- Верхняя панель (портретная раскладка) -->
   <header class="top-bar">
     <div class="top-left-group">
       <div class="status-pill" id="statusPill" title="Статус подключения">
@@ -43,8 +43,8 @@
         </button>
       </div>
 
-      <!-- Главная кнопка отправки в Obsidian - справа вверху, всегда на виду -->
-      <button class="send-btn" id="btnSend" title="Обрезать и отправить в активную заметку Obsidian">
+      <!-- Кнопка фиксации в правом верхнем углу -->
+      <button class="send-btn" id="btnSend" title="Зафиксировать заметку в Obsidian">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
         <span>Отправить</span>
       </button>
@@ -54,8 +54,24 @@
   <!-- Индикатор режима / уведомление (Toast) -->
   <div class="toast" id="toast"></div>
 
-  <!-- Компактный плавающий тулбар внизу (идеально помещается в портретный режим) -->
-  <nav class="floating-toolbar">
+  <!-- Всплывающий ползунок толщины пера (Size Slider Popover) -->
+  <div class="size-popup" id="sizePopup">
+    <div class="size-popup-header">
+      <span class="size-popup-title">Толщина пера</span>
+      <span class="size-val-label" id="sizeValLabel">4 px</span>
+    </div>
+    <div class="size-slider-row">
+      <button class="size-step-btn" id="btnSizeMinus" title="Уменьшить толщину">−</button>
+      <input type="range" min="1" max="28" value="4" id="sizeRange" class="size-slider">
+      <button class="size-step-btn" id="btnSizePlus" title="Увеличить толщину">+</button>
+    </div>
+    <div class="size-preview-container">
+      <div class="size-preview-dot" id="sizePreviewDot"></div>
+    </div>
+  </div>
+
+  <!-- Компактный плавающий тулбар внизу (всего 300px ширины) -->
+  <nav class="floating-toolbar" id="mainToolbar">
     <!-- Инструменты пера -->
     <div class="tool-group tools-segment">
       <button class="tool-btn active" data-tool="pen" title="Перо (S Pen Ink)">
@@ -83,25 +99,17 @@
 
     <div class="toolbar-divider"></div>
 
-    <!-- Толщина линии -->
-    <div class="tool-group size-segment" id="sizeSelector">
-      <button class="size-btn" data-size="2" title="Тонкая (2px)">
-        <span class="size-circle" style="width: 4px; height: 4px;"></span>
-      </button>
-      <button class="size-btn active" data-size="4" title="Средняя (4px)">
-        <span class="size-circle" style="width: 7px; height: 7px;"></span>
-      </button>
-      <button class="size-btn" data-size="8" title="Широкая (8px)">
-        <span class="size-circle" style="width: 11px; height: 11px;"></span>
-      </button>
-    </div>
+    <!-- Кнопка вызова ползунка толщины пера -->
+    <button class="size-picker-btn" id="btnSizeToggle" title="Толщина пера (нажмите для ползунка)">
+      <div class="size-indicator-dot" id="sizeIndicatorDot"></div>
+    </button>
   </nav>
 
-  <!-- Встроенный полноэкранный сканер QR-кода -->
+  <!-- Встроенный сканер QR-кода -->
   <div class="scanner-modal" id="scannerModal">
     <div class="scanner-header">
       <span class="scanner-title">Сканирование QR-кода</span>
-      <button class="icon-btn close-btn" id="btnCloseScanner" title="Закрыть сканер">✕</button>
+      <button class="icon-btn close-btn" id="btnCloseScanner" title="Закрыть">✕</button>
     </div>
 
     <div class="camera-viewport-container">
