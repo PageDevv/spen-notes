@@ -1,6 +1,6 @@
 /**
  * S Pen Notes Canvas Engine
- * Optimized for Samsung Galaxy S + S Pen, Infinite Canvas, Hold-to-Straighten & Obsidian P2P Sync
+ * Optimized for Samsung Galaxy S + S Pen, Infinite Canvas, Hold-to-Straighten, Built-in QR Scanner & Obsidian P2P Sync
  */
 
 (function () {
@@ -12,22 +12,31 @@
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
   const statusPill = document.getElementById('statusPill');
+  const btnScanQR = document.getElementById('btnScanQR');
   const toast = document.getElementById('toast');
   const btnSend = document.getElementById('btnSend');
   const btnUndo = document.getElementById('btnUndo');
   const btnRedo = document.getElementById('btnRedo');
   const btnClear = document.getElementById('btnClear');
-  const btnZoomReset = document.getElementById('btnZoomReset');
   const connectModal = document.getElementById('connectModal');
   const inputPeerId = document.getElementById('inputPeerId');
   const btnManualConnect = document.getElementById('btnManualConnect');
   const btnCancelModal = document.getElementById('btnCancelModal');
 
+  // Элементы встроенного QR-сканера
+  const scannerModal = document.getElementById('scannerModal');
+  const btnCloseScanner = document.getElementById('btnCloseScanner');
+  const qrVideo = document.getElementById('qrVideo');
+  const qrScanCanvas = document.getElementById('qrScanCanvas');
+  const btnOpenManualFromScanner = document.getElementById('btnOpenManualFromScanner');
+  let cameraStream = null;
+  let isScanningQR = false;
+
   // --- Состояние холста ---
   let currentColor = '#ffffff';
   let currentTool = 'pen'; // 'pen' | 'highlighter' | 'eraser'
   let currentBaseSize = 4;
-  let strokes = []; // массив всех завершенных штрихов
+  let strokes = [];
   let redoStack = [];
   let currentStroke = null;
 
@@ -61,7 +70,7 @@
   // Чтение параметров URL и localStorage
   const urlParams = new URLSearchParams(window.location.search);
   let targetPeerId = urlParams.get('peer');
-  const targetWsHost = urlParams.get('ws'); // например, 192.168.1.50:39174
+  const targetWsHost = urlParams.get('ws');
   targetSlotId = urlParams.get('slot');
 
   if (!targetPeerId) {
@@ -91,13 +100,6 @@
     };
   }
 
-  function worldToScreen(wx, wy) {
-    return {
-      x: wx * scale + panX,
-      y: wy * scale + panY
-    };
-  }
-
   // =========================================================================
   // Отрисовка
   // =========================================================================
@@ -105,20 +107,16 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Применяем масштаб DPR и трансформацию камеры
     ctx.scale(dpr, dpr);
     ctx.translate(panX, panY);
     ctx.scale(scale, scale);
 
-    // Отрисовываем сетку фона (минималистичные точки для ориентации в пространстве)
     drawBackgroundGrid();
 
-    // Рисуем завершенные штрихи
     for (const stroke of strokes) {
       drawStroke(stroke);
     }
 
-    // Рисуем текущий активный штрих
     if (currentStroke) {
       drawStroke(currentStroke);
     }
@@ -157,11 +155,10 @@
       ctx.lineWidth = stroke.baseSize * 3;
       ctx.globalCompositeOperation = 'source-over';
     } else if (stroke.tool === 'eraser') {
-      ctx.strokeStyle = '#0c0d12'; // цвет фона
+      ctx.strokeStyle = '#090a0f';
       ctx.lineWidth = stroke.baseSize * 4;
       ctx.globalCompositeOperation = 'destination-out';
     } else {
-      // Перо / Ink
       ctx.globalAlpha = 1.0;
       ctx.strokeStyle = stroke.color;
       ctx.lineWidth = stroke.baseSize;
@@ -170,7 +167,6 @@
 
     const pts = stroke.points;
 
-    // Если линия выровнена (Hold-to-Straighten)
     if (stroke.isSnapped && pts.length >= 2) {
       const p0 = pts[0];
       const pLast = pts[pts.length - 1];
@@ -184,7 +180,6 @@
     }
 
     if (pts.length === 1) {
-      // Одиночная точка
       ctx.beginPath();
       const r = (stroke.baseSize * (pts[0].pressure || 0.5)) / 2;
       ctx.arc(pts[0].x, pts[0].y, Math.max(r, 1), 0, Math.PI * 2);
@@ -194,7 +189,6 @@
       return;
     }
 
-    // Сглаживание квадратичными кривыми Безье
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
 
@@ -221,14 +215,13 @@
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
 
-    // Палец (Touch): Palm rejection и навигация по холсту
+    // Палец (Touch): Palm rejection и перемещение холста
     if (e.pointerType === 'touch') {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
       if (activePointers.size === 1 && !isPenDrawing) {
         isNavigating = true;
       } else if (activePointers.size === 2) {
-        // Начало pinch-to-zoom
         const pts = Array.from(activePointers.values());
         initialPinchDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         initialScale = scale;
@@ -241,7 +234,6 @@
       isPenDrawing = true;
       isLineSnapped = false;
 
-      // Проверяем кнопку пера S Pen (стирание на лету)
       let toolToUse = currentTool;
       if (e.buttons === 2 || e.button === 2) {
         toolToUse = 'eraser';
@@ -268,7 +260,6 @@
   function onPointerMove(e) {
     e.preventDefault();
 
-    // Навигация пальцами (1 палец - pan, 2 пальца - pinch zoom)
     if (e.pointerType === 'touch') {
       if (!activePointers.has(e.pointerId)) return;
       const prevPos = activePointers.get(e.pointerId);
@@ -283,25 +274,21 @@
         const curDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         if (initialPinchDistance > 0) {
           const newScale = Math.min(Math.max(initialScale * (curDist / initialPinchDistance), 0.3), 4.0);
-          // Зум относительно центра между пальцами
           const midX = (pts[0].x + pts[1].x) / 2;
           const midY = (pts[0].y + pts[1].y) / 2;
           panX = midX - (midX - panX) * (newScale / scale);
           panY = midY - (midY - panY) * (newScale / scale);
           scale = newScale;
-          btnZoomReset.textContent = Math.round(scale * 100) + '%';
           redrawCanvas();
         }
       }
       return;
     }
 
-    // Рисование S Pen
     if ((e.pointerType === 'pen' || e.pointerType === 'mouse') && currentStroke) {
       const worldPos = screenToWorld(e.clientX, e.clientY);
       const pressure = (e.pressure !== undefined && e.pressure > 0) ? e.pressure : 0.5;
 
-      // Если линия уже выровнена (snapped), обновляем конечную точку прямой
       if (currentStroke.isSnapped) {
         const pts = currentStroke.points;
         pts[pts.length - 1] = { x: worldPos.x, y: worldPos.y, pressure, time: Date.now() };
@@ -309,14 +296,11 @@
         return;
       }
 
-      // Добавляем точку к штриху
       currentStroke.points.push({ x: worldPos.x, y: worldPos.y, pressure, time: Date.now() });
 
-      // Проверяем Hold-to-Straighten (удержание пера на месте)
       if (holdStartPoint) {
         const dist = Math.hypot(e.clientX - holdStartPoint.x, e.clientY - holdStartPoint.y);
         if (dist > HOLD_DISTANCE_THRESHOLD) {
-          // Перо активно движется, перезапускаем таймер удержания от текущей точки
           holdStartPoint = { x: e.clientX, y: e.clientY };
           startHoldTimer(e.clientX, e.clientY);
         }
@@ -342,14 +326,14 @@
       if (currentStroke) {
         strokes.push(currentStroke);
         currentStroke = null;
-        redoStack = []; // сброс redo при новом штрихе
+        redoStack = [];
         redrawCanvas();
       }
     }
   }
 
   // =========================================================================
-  // Hold-to-Straighten Engine (Выравнивание линии при удержании пера)
+  // Hold-to-Straighten Engine
   // =========================================================================
   function startHoldTimer(sx, sy) {
     clearHoldTimer();
@@ -368,11 +352,9 @@
   function triggerStraighten() {
     if (!currentStroke || currentStroke.points.length < 3) return;
 
-    // Срабатывание выравнивания
     currentStroke.isSnapped = true;
     isLineSnapped = true;
 
-    // Тактильный вибро-отклик
     if (navigator.vibrate) {
       navigator.vibrate(25);
     }
@@ -382,7 +364,7 @@
   }
 
   // =========================================================================
-  // Auto-Crop Engine (Автоматическая обрезка штрихов + Padding)
+  // Auto-Crop Engine (Расчет Bounding Box + Padding)
   // =========================================================================
   function exportCroppedPNG() {
     if (strokes.length === 0) {
@@ -414,12 +396,10 @@
       return null;
     }
 
-    // Эстетичный отступ (padding) для идеального отображения в Obsidian
     const padding = 28;
     const cropWidth = (maxX - minX) + padding * 2;
     const cropHeight = (maxY - minY) + padding * 2;
 
-    // Оффскрин канвас с 2x плотностью для максимальной четкости (Retina)
     const offCanvas = document.createElement('canvas');
     const scaleFactor = 2;
     offCanvas.width = Math.ceil(cropWidth * scaleFactor);
@@ -429,7 +409,6 @@
     offCtx.scale(scaleFactor, scaleFactor);
     offCtx.translate(-minX + padding, -minY + padding);
 
-    // Рисуем все штрихи на чистом прозрачном фоне
     for (const stroke of strokes) {
       drawStrokeOnContext(offCtx, stroke);
     }
@@ -491,33 +470,207 @@
   }
 
   // =========================================================================
-  // Сетевое подключение: PeerJS WebRTC + LAN WebSocket Fallback
+  // Встроенный QR-Сканер (Камера)
   // =========================================================================
-  function initNetworking() {
-    // 1. Попытка LAN WebSocket (если передан IP компьютера)
-    if (targetWsHost) {
-      connectLocalWs(targetWsHost);
+  btnScanQR.addEventListener('click', () => {
+    startQRScanner();
+  });
+
+  btnCloseScanner.addEventListener('click', () => {
+    stopQRScanner();
+  });
+
+  btnOpenManualFromScanner.addEventListener('click', () => {
+    stopQRScanner();
+    connectModal.classList.add('open');
+  });
+
+  async function startQRScanner() {
+    try {
+      scannerModal.classList.add('open');
+      isScanningQR = true;
+
+      const constraints = {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+
+      cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+      qrVideo.srcObject = cameraStream;
+      await qrVideo.play();
+
+      requestAnimationFrame(scanLoop);
+    } catch (err) {
+      console.error('Camera error:', err);
+      showToast('Не удалось включить камеру');
+      stopQRScanner();
+      connectModal.classList.add('open');
+    }
+  }
+
+  function stopQRScanner() {
+    isScanningQR = false;
+    scannerModal.classList.remove('open');
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      cameraStream = null;
+    }
+    qrVideo.srcObject = null;
+  }
+
+  function scanLoop() {
+    if (!isScanningQR) return;
+
+    if (qrVideo.readyState === qrVideo.HAVE_ENOUGH_DATA) {
+      // 1. Попытка через нативный BarcodeDetector
+      if ('BarcodeDetector' in window) {
+        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+        detector.detect(qrVideo).then((barcodes) => {
+          if (barcodes && barcodes.length > 0) {
+            handleScannedQR(barcodes[0].rawValue);
+          } else if (isScanningQR) {
+            requestAnimationFrame(scanLoop);
+          }
+        }).catch(() => {
+          fallbackJsQR();
+        });
+        return;
+      }
+
+      // 2. Fallback через встроенный jsQR
+      fallbackJsQR();
+    } else {
+      requestAnimationFrame(scanLoop);
+    }
+  }
+
+  function fallbackJsQR() {
+    if (!isScanningQR) return;
+    try {
+      const vWidth = qrVideo.videoWidth;
+      const vHeight = qrVideo.videoHeight;
+      if (vWidth > 0 && vHeight > 0) {
+        qrScanCanvas.width = vWidth;
+        qrScanCanvas.height = vHeight;
+        const sCtx = qrScanCanvas.getContext('2d');
+        sCtx.drawImage(qrVideo, 0, 0, vWidth, vHeight);
+        const imgData = sCtx.getImageData(0, 0, vWidth, vHeight);
+
+        if (typeof jsQR !== 'undefined') {
+          const code = jsQR(imgData.data, vWidth, vHeight, {
+            inversionAttempts: 'dontInvert'
+          });
+          if (code && code.data) {
+            handleScannedQR(code.data);
+            return;
+          }
+        }
+      }
+    } catch (e) {}
+
+    if (isScanningQR) {
+      requestAnimationFrame(scanLoop);
+    }
+  }
+
+  function handleScannedQR(rawData) {
+    if (!rawData) return;
+    stopQRScanner();
+
+    if (navigator.vibrate) {
+      navigator.vibrate([40, 50, 40]);
     }
 
-    // 2. Попытка Cloud P2P через PeerJS
+    console.log('Scanned QR Raw:', rawData);
+
+    let extractedPeer = null;
+    let extractedWs = null;
+    let extractedSlot = null;
+
+    try {
+      // Если это URL
+      if (rawData.startsWith('http://') || rawData.startsWith('https://') || rawData.startsWith('spen://')) {
+        const u = new URL(rawData.replace('spen://', 'https://'));
+        extractedPeer = u.searchParams.get('peer');
+        extractedWs = u.searchParams.get('ws');
+        extractedSlot = u.searchParams.get('slot');
+      } else {
+        // Если передан напрямую peer ID
+        extractedPeer = rawData.trim();
+      }
+    } catch (e) {
+      extractedPeer = rawData.trim();
+    }
+
+    if (extractedSlot) {
+      targetSlotId = extractedSlot;
+    }
+
+    if (extractedPeer) {
+      targetPeerId = extractedPeer;
+      localStorage.setItem('last_obsidian_peer_id', targetPeerId);
+    }
+
+    showToast('QR распознан! Подключение... ⚡');
+
+    // Переподключаемся
+    if (extractedWs) {
+      connectLocalWs(extractedWs, false, (success) => {
+        if (!success && extractedPeer) {
+          connectCloudPeer(extractedPeer);
+        }
+      });
+    } else if (extractedPeer) {
+      connectCloudPeer(extractedPeer);
+    }
+  }
+
+  // =========================================================================
+  // Сетевое подключение: USB Direct -> Wi-Fi LAN -> PeerJS Cloud P2P
+  // =========================================================================
+  function initNetworking() {
+    updateStatus('connecting', 'Поиск Obsidian...');
+
+    // 1. Проверяем прямой USB-кабель через adb reverse (127.0.0.1:39174)
+    connectLocalWs('127.0.0.1:39174', true, (usbConnected) => {
+      if (usbConnected) return;
+
+      // 2. Если USB не ответил, пробуем переданный Wi-Fi адрес
+      if (targetWsHost && targetWsHost !== '127.0.0.1:39174') {
+        connectLocalWs(targetWsHost, false, (lanConnected) => {
+          if (lanConnected) return;
+          tryCloudP2P();
+        });
+      } else {
+        tryCloudP2P();
+      }
+    });
+  }
+
+  function tryCloudP2P() {
     if (targetPeerId) {
       connectCloudPeer(targetPeerId);
-    } else if (!targetWsHost) {
-      updateStatus('disconnected', 'Нажмите для настройки');
+    } else {
+      updateStatus('disconnected', 'Подключить');
     }
   }
 
   function connectCloudPeer(targetId) {
-    updateStatus('connecting', 'Подключение к P2P...');
+    updateStatus('connecting', 'P2P...');
     try {
       if (typeof Peer === 'undefined') {
-        updateStatus('disconnected', 'PeerJS недоступен');
+        updateStatus('disconnected', 'Ошибка Peer');
         return;
       }
 
-      peer = new Peer({
-        debug: 1
-      });
+      if (peer) {
+        try { peer.destroy(); } catch (e) {}
+      }
+
+      peer = new Peer({ debug: 1 });
 
       peer.on('open', (id) => {
         console.log('Mobile Peer ID:', id);
@@ -526,10 +679,9 @@
         conn.on('open', () => {
           peerConn = conn;
           isConnected = true;
-          updateStatus('connected', 'Obsidian подключен (Cloud P2P)');
-          showToast('Подключено к Obsidian!');
+          updateStatus('connected', 'Obsidian (Cloud)');
+          showToast('Подключено к Obsidian! ✨');
 
-          // Слушаем подтверждения
           conn.on('data', (data) => {
             handleIncomingData(data);
           });
@@ -537,51 +689,77 @@
 
         conn.on('close', () => {
           isConnected = false;
-          updateStatus('disconnected', 'Соединение закрыто');
+          updateStatus('disconnected', 'Отключено');
         });
 
         conn.on('error', (err) => {
           console.error('Peer conn error:', err);
-          updateStatus('disconnected', 'Ошибка соединения');
+          updateStatus('disconnected', 'Сбой связи');
         });
       });
 
       peer.on('error', (err) => {
         console.error('Peer error:', err);
-        updateStatus('disconnected', 'Ошибка P2P');
+        updateStatus('disconnected', 'Сбой P2P');
       });
     } catch (err) {
       console.error(err);
-      updateStatus('disconnected', 'Сбой P2P');
+      updateStatus('disconnected', 'Ошибка сети');
     }
   }
 
-  function connectLocalWs(host) {
+  function connectLocalWs(host, isUsbCheck, callback) {
+    let settled = false;
     try {
       const wsUrl = `ws://${host}`;
-      localWs = new WebSocket(wsUrl);
+      const tempWs = new WebSocket(wsUrl);
 
-      localWs.onopen = () => {
+      const failTimeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          try { tempWs.close(); } catch (e) {}
+          if (callback) callback(false);
+        }
+      }, 1500);
+
+      tempWs.onopen = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(failTimeout);
+        localWs = tempWs;
         isConnected = true;
-        updateStatus('connected', 'Obsidian подключен (LAN)');
-        showToast('Подключено по Wi-Fi!');
+        const modeName = isUsbCheck ? 'USB Direct' : 'Wi-Fi LAN';
+        updateStatus('connected', `Obsidian (${modeName})`);
+        showToast(`Подключено через ${modeName}! ⚡`);
+        if (callback) callback(true);
       };
 
-      localWs.onmessage = (event) => {
+      tempWs.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           handleIncomingData(data);
         } catch (e) {}
       };
 
-      localWs.onclose = () => {
+      tempWs.onerror = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(failTimeout);
+          if (callback) callback(false);
+        }
+      };
+
+      tempWs.onclose = () => {
         if (!peerConn) {
           isConnected = false;
-          updateStatus('disconnected', 'LAN отключен');
+          updateStatus('disconnected', 'Отключено');
         }
       };
     } catch (e) {
-      console.warn('Local WS failed:', e);
+      if (!settled) {
+        settled = true;
+        if (callback) callback(false);
+      }
     }
   }
 
@@ -595,7 +773,6 @@
       showToast('Вставлено в заметку Obsidian! ✨');
       btnSend.classList.remove('sending');
       btnSend.querySelector('span').textContent = 'Отправить';
-      // Очищаем холст для следующей заметки
       strokes = [];
       redoStack = [];
       redrawCanvas();
@@ -603,15 +780,15 @@
   }
 
   // =========================================================================
-  // Отправка заметки в Obsidian
+  // Отправка заметки в Obsidian (кнопка в правом верхнем углу)
   // =========================================================================
   btnSend.addEventListener('click', () => {
     const pngData = exportCroppedPNG();
     if (!pngData) return;
 
     if (!isConnected && !peerConn && !localWs) {
-      showToast('Нет подключения к Obsidian. Отсканируйте QR');
-      connectModal.classList.add('open');
+      showToast('Сначала подключитесь к Obsidian');
+      startQRScanner();
       return;
     }
 
@@ -627,21 +804,18 @@
 
     let sent = false;
 
-    // Отправка через PeerJS DataChannel
     if (peerConn && peerConn.open) {
       peerConn.send(payload);
       sent = true;
     }
 
-    // Отправка через локальный WebSocket
     if (localWs && localWs.readyState === WebSocket.OPEN) {
       localWs.send(JSON.stringify(payload));
       sent = true;
     }
 
     if (sent) {
-      showToast('Заметка отправлена в Obsidian...');
-      // Таймаут на случай задержки ответа
+      showToast('Отправка в Obsidian...');
       setTimeout(() => {
         btnSend.classList.remove('sending');
         btnSend.querySelector('span').textContent = 'Отправить';
@@ -649,14 +823,13 @@
     } else {
       btnSend.classList.remove('sending');
       btnSend.querySelector('span').textContent = 'Отправить';
-      showToast('Ошибка отправки: канал недоступен');
+      showToast('Ошибка: канал связи недоступен');
     }
   });
 
   // =========================================================================
   // UI & Инструменты
   // =========================================================================
-  // Выбор инструмента
   document.querySelectorAll('.tool-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.tool-btn').forEach((b) => b.classList.remove('active'));
@@ -665,21 +838,18 @@
     });
   });
 
-  // Выбор цвета
   document.querySelectorAll('.color-dot').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.color-dot').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       currentColor = btn.dataset.color;
       if (currentTool === 'eraser') {
-        // Переключаем обратно на перо при выборе цвета
         const penBtn = document.querySelector('[data-tool="pen"]');
         if (penBtn) penBtn.click();
       }
     });
   });
 
-  // Выбор размера
   document.querySelectorAll('.size-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.size-btn').forEach((b) => b.classList.remove('active'));
@@ -688,7 +858,6 @@
     });
   });
 
-  // Undo / Redo
   btnUndo.addEventListener('click', () => {
     if (strokes.length > 0) {
       redoStack.push(strokes.pop());
@@ -703,7 +872,6 @@
     }
   });
 
-  // Очистка
   btnClear.addEventListener('click', () => {
     if (strokes.length === 0) return;
     if (confirm('Очистить весь холст?')) {
@@ -713,18 +881,8 @@
     }
   });
 
-  // Сброс масштаба и позиции
-  btnZoomReset.addEventListener('click', () => {
-    panX = 0;
-    panY = 0;
-    scale = 1.0;
-    btnZoomReset.textContent = '100%';
-    redrawCanvas();
-  });
-
-  // Статус / Ручное подключение
   statusPill.addEventListener('click', () => {
-    connectModal.classList.add('open');
+    startQRScanner();
   });
 
   btnCancelModal.addEventListener('click', () => {
@@ -734,13 +892,13 @@
   btnManualConnect.addEventListener('click', () => {
     const val = inputPeerId.value.trim();
     if (val) {
+      targetPeerId = val;
       localStorage.setItem('last_obsidian_peer_id', val);
       connectModal.classList.remove('open');
       connectCloudPeer(val);
     }
   });
 
-  // Всплывающее уведомление
   let toastTimer = null;
   function showToast(msg) {
     toast.textContent = msg;
@@ -751,7 +909,6 @@
     }, 2500);
   }
 
-  // Запуск
   resizeCanvas();
   initNetworking();
 })();

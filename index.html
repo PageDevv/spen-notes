@@ -8,49 +8,64 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>S Pen Notes Canvas</title>
   <link rel="stylesheet" href="style.css">
-  <!-- PeerJS для надежного Cloud P2P WebRTC соединения без проброса портов -->
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="peerjs.min.js"></script>
+  <script src="jsQR.min.js"></script>
 </head>
 <body>
   <!-- Главный бесконечный холст для S Pen -->
   <canvas id="noteCanvas"></canvas>
 
-  <!-- Верхняя информационная панель -->
+  <!-- Верхняя панель (адаптирована под портретный режим) -->
   <header class="top-bar">
-    <div class="status-pill" id="statusPill" title="Статус P2P соединения">
-      <span class="status-dot disconnected" id="statusDot"></span>
-      <span class="status-text" id="statusText">Поиск Obsidian...</span>
+    <div class="top-left-group">
+      <div class="status-pill" id="statusPill" title="Статус подключения">
+        <span class="status-dot disconnected" id="statusDot"></span>
+        <span class="status-text" id="statusText">Obsidian...</span>
+      </div>
+      <button class="icon-btn qr-scan-btn" id="btnScanQR" title="Сканировать QR-код с экрана ПК">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+          <rect x="7" y="7" width="10" height="10" rx="1"/>
+        </svg>
+      </button>
     </div>
 
-    <div class="top-actions">
-      <button class="icon-btn" id="btnZoomReset" title="Сбросить масштаб">100%</button>
-      <button class="icon-btn" id="btnUndo" title="Отменить действие (Undo)">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-      </button>
-      <button class="icon-btn" id="btnRedo" title="Повторить действие (Redo)">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
-      </button>
-      <button class="icon-btn danger" id="btnClear" title="Очистить весь холст">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+    <div class="top-right-group">
+      <div class="edit-actions">
+        <button class="icon-btn" id="btnUndo" title="Отменить (Undo)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+        </button>
+        <button class="icon-btn" id="btnRedo" title="Повторить (Redo)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
+        </button>
+        <button class="icon-btn danger" id="btnClear" title="Очистить холст">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        </button>
+      </div>
+
+      <!-- Главная кнопка отправки в Obsidian - справа вверху, всегда на виду -->
+      <button class="send-btn" id="btnSend" title="Обрезать и отправить в активную заметку Obsidian">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+        <span>Отправить</span>
       </button>
     </div>
   </header>
 
-  <!-- Индикатор режима / уведомление (Hold-to-Straighten, Отправка итд) -->
+  <!-- Индикатор режима / уведомление (Toast) -->
   <div class="toast" id="toast"></div>
 
-  <!-- Плавающий минималистичный тулбар заметок (стиль современных Dark Notes) -->
+  <!-- Компактный плавающий тулбар внизу (идеально помещается в портретный режим) -->
   <nav class="floating-toolbar">
     <!-- Инструменты пера -->
     <div class="tool-group tools-segment">
       <button class="tool-btn active" data-tool="pen" title="Перо (S Pen Ink)">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19 7-7 3 3-7 7-3-3z"/><path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="m2 2 7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19 7-7 3 3-7 7-3-3z"/><path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="m2 2 7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
       </button>
       <button class="tool-btn" data-tool="highlighter" title="Маркер / Хайлайтер">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
       </button>
       <button class="tool-btn" data-tool="eraser" title="Ластик">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
       </button>
     </div>
 
@@ -68,35 +83,53 @@
 
     <div class="toolbar-divider"></div>
 
-    <!-- Выбор толщины -->
+    <!-- Толщина линии -->
     <div class="tool-group size-segment" id="sizeSelector">
-      <button class="size-btn" data-size="2" title="Тонкая линия (2px)">
+      <button class="size-btn" data-size="2" title="Тонкая (2px)">
         <span class="size-circle" style="width: 4px; height: 4px;"></span>
       </button>
-      <button class="size-btn active" data-size="4" title="Средняя линия (4px)">
+      <button class="size-btn active" data-size="4" title="Средняя (4px)">
         <span class="size-circle" style="width: 7px; height: 7px;"></span>
       </button>
-      <button class="size-btn" data-size="8" title="Широкая линия (8px)">
+      <button class="size-btn" data-size="8" title="Широкая (8px)">
         <span class="size-circle" style="width: 11px; height: 11px;"></span>
       </button>
     </div>
-
-    <div class="toolbar-divider"></div>
-
-    <!-- Кнопка отправки в Obsidian -->
-    <button class="send-btn" id="btnSend" title="Обрезать и отправить в активную заметку Obsidian">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-      <span>Отправить</span>
-    </button>
   </nav>
 
-  <!-- Модальное окно настройки подключения (если QR код не передал параметры) -->
+  <!-- Встроенный полноэкранный сканер QR-кода -->
+  <div class="scanner-modal" id="scannerModal">
+    <div class="scanner-header">
+      <span class="scanner-title">Сканирование QR-кода</span>
+      <button class="icon-btn close-btn" id="btnCloseScanner" title="Закрыть сканер">✕</button>
+    </div>
+
+    <div class="camera-viewport-container">
+      <video id="qrVideo" playsinline autoplay muted></video>
+      <canvas id="qrScanCanvas" style="display:none;"></canvas>
+
+      <div class="scan-reticle">
+        <div class="scan-corner top-left"></div>
+        <div class="scan-corner top-right"></div>
+        <div class="scan-corner bottom-left"></div>
+        <div class="scan-corner bottom-right"></div>
+        <div class="scan-laser"></div>
+      </div>
+    </div>
+
+    <div class="scanner-footer">
+      <p class="scanner-instructions">Наведите камеру на QR-код в окне Obsidian на ПК</p>
+      <button class="btn secondary btn-manual-open" id="btnOpenManualFromScanner">Ввести ID вручную</button>
+    </div>
+  </div>
+
+  <!-- Модальное окно ручного ввода ID -->
   <div class="modal-overlay" id="connectModal">
     <div class="modal-card">
       <h3>Подключение к Obsidian</h3>
-      <p>Отсканируйте QR-код в Obsidian на компьютере (команда <code>/spen</code> или значок на панели).</p>
+      <p>Отсканируйте QR-код сканером приложения или введите ID пира из Obsidian:</p>
       <div class="input-group">
-        <label>Или введите ID пира вручную:</label>
+        <label>ID пира:</label>
         <input type="text" id="inputPeerId" placeholder="например: obsidian-spen-12345">
       </div>
       <div class="modal-buttons">
