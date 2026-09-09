@@ -1,11 +1,11 @@
 /* ==========================================================================
-   S Pen Notes Canvas - Minimalist Dark Theme
+   S Pen Notes Canvas - Minimalist Dark Theme (Portrait & Landscape Optimized)
    ========================================================================== */
 
 :root {
   --bg-color: #090a0f;
-  --panel-bg: rgba(20, 22, 31, 0.90);
-  --panel-border: rgba(255, 255, 255, 0.09);
+  --panel-bg: rgba(20, 22, 31, 0.88);
+  --panel-border: rgba(255, 255, 255, 0.08);
   --text-main: #f1f5f9;
   --text-muted: #94a3b8;
   --accent: #2563eb;
@@ -13,8 +13,8 @@
   --accent-cyan: #38bdf8;
   --success: #10b981;
   --danger: #ef4444;
-  --surface-hover: rgba(255, 255, 255, 0.08);
-  --surface-active: rgba(255, 255, 255, 0.15);
+  --surface-hover: rgba(255, 255, 255, 0.07);
+  --surface-active: rgba(255, 255, 255, 0.14);
   --radius-pill: 9999px;
   --radius-md: 14px;
 }
@@ -94,7 +94,7 @@ html, body {
   color: var(--text-muted);
   cursor: pointer;
   transition: background 0.15s;
-  max-width: 150px;
+  max-width: 140px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -213,12 +213,12 @@ html, body {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: var(--panel-bg);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--panel-border);
-  padding: 5px 10px;
+  padding: 5px 8px;
   border-radius: var(--radius-pill);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
   z-index: 100;
@@ -236,7 +236,7 @@ html, body {
   width: 1px;
   height: 20px;
   background: var(--panel-border);
-  margin: 0 4px;
+  margin: 0 3px;
 }
 
 .tool-btn {
@@ -244,8 +244,8 @@ html, body {
   border: none;
   outline: none;
   color: var(--text-muted);
-  width: 36px;
-  height: 36px;
+  width: 35px;
+  height: 35px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -264,7 +264,7 @@ html, body {
   color: var(--text-main);
 }
 
-/* Палитра */
+/* Палитра цветов */
 .colors-segment {
   display: flex;
   gap: 5px;
@@ -286,88 +286,115 @@ html, body {
   transform: scale(1.18);
 }
 
-/* Кнопка выбора толщины пера */
-.size-picker-btn {
+/* Выпадающий ползунок размера пера */
+.size-trigger-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.size-trigger-btn {
   background: transparent;
-  border: none;
-  outline: none;
-  width: 36px;
-  height: 36px;
+  border: 1px solid var(--panel-border);
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 0.15s ease;
 }
 
-.size-picker-btn:hover, .size-picker-btn.active {
+.size-trigger-btn:hover, .size-trigger-btn.active {
   background: var(--surface-active);
+  border-color: var(--accent-cyan);
 }
 
-.size-indicator-dot {
-  width: 7px;
-  height: 7px;
+.current-size-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background-color: var(--text-main);
-  transition: width 0.15s, height 0.15s, background-color 0.15s;
+  background-color: #ffffff;
+  display: block;
+  transition: all 0.15s ease;
 }
 
-/* Всплывающий ползунок толщины пера (Popup Slider) */
-.size-popup {
+/* Всплывающее меню ползунка */
+.size-popover {
   position: absolute;
-  bottom: calc(env(safe-area-inset-bottom, 16px) + 64px);
-  right: 18px;
-  background: var(--panel-bg);
+  bottom: calc(100% + 14px);
+  right: -10px;
+  background: rgba(18, 20, 29, 0.96);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
-  border: 1px solid var(--panel-border);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
   padding: 14px 16px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
-  z-index: 105;
-  width: 230px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 210px;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(12px) scale(0.95);
+  transform: translateY(10px) scale(0.95);
+  transform-origin: bottom right;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 150;
 }
 
-.size-popup.open {
+.size-popover.open {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0) scale(1);
 }
 
-.size-popup-header {
+.size-preview-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0 4px;
 }
 
-.size-popup-title {
-  font-size: 12.5px;
-  color: var(--text-muted);
-  font-weight: 500;
+.size-preview-circle-box {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 50%;
 }
 
-.size-val-label {
-  font-size: 13px;
-  color: var(--accent-cyan);
+.size-preview-dot {
+  display: block;
+  border-radius: 50%;
+  background-color: #ffffff;
+  transition: width 0.1s, height 0.1s, background-color 0.15s;
+}
+
+.size-val-text {
+  font-size: 13.5px;
   font-weight: 600;
+  color: var(--text-main);
+  letter-spacing: 0.5px;
 }
 
-.size-slider-row {
+.slider-control-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
+  width: 100%;
 }
 
-.size-step-btn {
-  background: var(--surface-hover);
-  border: 1px solid var(--panel-border);
+.step-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  outline: none;
   color: var(--text-main);
   width: 28px;
   height: 28px;
@@ -375,59 +402,51 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
   font-size: 16px;
   font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
+  line-height: 1;
+  transition: background 0.15s, transform 0.1s;
   flex-shrink: 0;
 }
 
-.size-step-btn:hover {
-  background: var(--surface-active);
+.step-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
-.size-slider {
-  flex: 1;
+.step-btn:active {
+  transform: scale(0.9);
+}
+
+/* Стилизация ползунка */
+.size-range-slider {
   -webkit-appearance: none;
   appearance: none;
+  width: 100%;
   height: 6px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
   outline: none;
+  cursor: pointer;
 }
 
-.size-slider::-webkit-slider-thumb {
+.size-range-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 18px;
   height: 18px;
   border-radius: 50%;
   background: var(--accent-cyan);
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
   cursor: pointer;
-  transition: transform 0.1s;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+  transition: transform 0.1s, background-color 0.15s;
 }
 
-.size-slider::-webkit-slider-thumb:active {
+.size-range-slider::-webkit-slider-thumb:active {
   transform: scale(1.2);
 }
 
-.size-preview-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  background: rgba(0, 0, 0, 0.35);
-  border-radius: 8px;
-}
-
-.size-preview-dot {
-  border-radius: 50%;
-  background-color: #ffffff;
-  transition: width 0.1s, height 0.1s, background-color 0.15s;
-}
-
-/* Toast */
+/* Всплывающие уведомления (Toast) */
 .toast {
   position: absolute;
   top: 72px;
@@ -452,7 +471,7 @@ html, body {
   transform: translateX(-50%) translateY(0);
 }
 
-/* Сканер QR */
+/* Встроенный QR-сканер */
 .scanner-modal {
   position: fixed;
   inset: 0;

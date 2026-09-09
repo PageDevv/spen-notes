@@ -15,14 +15,14 @@
   <!-- Главный бесконечный холст для S Pen -->
   <canvas id="noteCanvas"></canvas>
 
-  <!-- Верхняя панель (портретная раскладка) -->
+  <!-- Верхняя панель (портретный режим: статус слева, действия и Отправить справа) -->
   <header class="top-bar">
     <div class="top-left-group">
       <div class="status-pill" id="statusPill" title="Статус подключения">
         <span class="status-dot disconnected" id="statusDot"></span>
         <span class="status-text" id="statusText">Obsidian...</span>
       </div>
-      <button class="icon-btn qr-scan-btn" id="btnScanQR" title="Сканировать QR-код с экрана ПК">
+      <button class="icon-btn qr-scan-btn" id="btnScanQR" title="Сканировать QR-код">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
           <rect x="7" y="7" width="10" height="10" rx="1"/>
@@ -32,20 +32,20 @@
 
     <div class="top-right-group">
       <div class="edit-actions">
-        <button class="icon-btn" id="btnUndo" title="Отменить (Undo)">
+        <button class="icon-btn" id="btnUndo" title="Отменить">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
         </button>
-        <button class="icon-btn" id="btnRedo" title="Повторить (Redo)">
+        <button class="icon-btn" id="btnRedo" title="Повторить">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
         </button>
-        <button class="icon-btn danger" id="btnClear" title="Очистить холст">
+        <button class="icon-btn danger" id="btnClear" title="Очистить">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         </button>
       </div>
 
-      <!-- Кнопка фиксации в правом верхнем углу -->
-      <button class="send-btn" id="btnSend" title="Зафиксировать заметку в Obsidian">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+      <!-- Главная кнопка Отправить в правом верхнем углу -->
+      <button class="send-btn" id="btnSend" title="Обрезать и отправить в Obsidian">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
         <span>Отправить</span>
       </button>
     </div>
@@ -54,30 +54,14 @@
   <!-- Индикатор режима / уведомление (Toast) -->
   <div class="toast" id="toast"></div>
 
-  <!-- Всплывающий ползунок толщины пера (Size Slider Popover) -->
-  <div class="size-popup" id="sizePopup">
-    <div class="size-popup-header">
-      <span class="size-popup-title">Толщина пера</span>
-      <span class="size-val-label" id="sizeValLabel">4 px</span>
-    </div>
-    <div class="size-slider-row">
-      <button class="size-step-btn" id="btnSizeMinus" title="Уменьшить толщину">−</button>
-      <input type="range" min="1" max="28" value="4" id="sizeRange" class="size-slider">
-      <button class="size-step-btn" id="btnSizePlus" title="Увеличить толщину">+</button>
-    </div>
-    <div class="size-preview-container">
-      <div class="size-preview-dot" id="sizePreviewDot"></div>
-    </div>
-  </div>
-
-  <!-- Компактный плавающий тулбар внизу (всего 300px ширины) -->
-  <nav class="floating-toolbar" id="mainToolbar">
+  <!-- Компактный плавающий тулбар внизу -->
+  <nav class="floating-toolbar">
     <!-- Инструменты пера -->
     <div class="tool-group tools-segment">
-      <button class="tool-btn active" data-tool="pen" title="Перо (S Pen Ink)">
+      <button class="tool-btn active" data-tool="pen" title="Перо">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19 7-7 3 3-7 7-3-3z"/><path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="m2 2 7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
       </button>
-      <button class="tool-btn" data-tool="highlighter" title="Маркер / Хайлайтер">
+      <button class="tool-btn" data-tool="highlighter" title="Маркер">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
       </button>
       <button class="tool-btn" data-tool="eraser" title="Ластик">
@@ -99,17 +83,34 @@
 
     <div class="toolbar-divider"></div>
 
-    <!-- Кнопка вызова ползунка толщины пера -->
-    <button class="size-picker-btn" id="btnSizeToggle" title="Толщина пера (нажмите для ползунка)">
-      <div class="size-indicator-dot" id="sizeIndicatorDot"></div>
-    </button>
+    <!-- Выпадающий ползунок размера пера (больше/меньше) -->
+    <div class="size-trigger-wrapper">
+      <button class="size-trigger-btn" id="btnSizeToggle" title="Настроить толщину пера">
+        <span class="current-size-dot" id="currentSizeDot"></span>
+      </button>
+
+      <!-- Всплывающее меню ползунка -->
+      <div class="size-popover" id="sizePopover">
+        <div class="size-preview-header">
+          <div class="size-preview-circle-box">
+            <span class="size-preview-dot" id="sizePreviewDot"></span>
+          </div>
+          <span class="size-val-text" id="sizeValText">4 px</span>
+        </div>
+        <div class="slider-control-row">
+          <button class="step-btn" id="btnSizeMinus" title="Меньше">−</button>
+          <input type="range" class="size-range-slider" id="sizeSlider" min="1" max="24" value="4" step="1">
+          <button class="step-btn" id="btnSizePlus" title="Больше">+</button>
+        </div>
+      </div>
+    </div>
   </nav>
 
-  <!-- Встроенный сканер QR-кода -->
+  <!-- Встроенный полноэкранный сканер QR-кода -->
   <div class="scanner-modal" id="scannerModal">
     <div class="scanner-header">
       <span class="scanner-title">Сканирование QR-кода</span>
-      <button class="icon-btn close-btn" id="btnCloseScanner" title="Закрыть">✕</button>
+      <button class="icon-btn close-btn" id="btnCloseScanner" title="Закрыть сканер">✕</button>
     </div>
 
     <div class="camera-viewport-container">

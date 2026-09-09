@@ -1,6 +1,6 @@
 /**
  * S Pen Notes Canvas Engine
- * Optimized for Samsung Galaxy S + S Pen, Infinite Canvas, Real-Time Streaming & Built-in QR Scanner
+ * Optimized for Samsung Galaxy S + S Pen, Infinite Canvas, Hold-to-Straighten, Built-in QR Scanner & Obsidian P2P Sync
  */
 
 (function () {
@@ -23,15 +23,15 @@
   const btnManualConnect = document.getElementById('btnManualConnect');
   const btnCancelModal = document.getElementById('btnCancelModal');
 
-  // Элементы ползунка толщины пера
+  // Элементы выпадающего ползунка толщины
   const btnSizeToggle = document.getElementById('btnSizeToggle');
-  const sizePopup = document.getElementById('sizePopup');
-  const sizeRange = document.getElementById('sizeRange');
+  const sizePopover = document.getElementById('sizePopover');
+  const sizeSlider = document.getElementById('sizeSlider');
+  const sizeValText = document.getElementById('sizeValText');
+  const sizePreviewDot = document.getElementById('sizePreviewDot');
+  const currentSizeDot = document.getElementById('currentSizeDot');
   const btnSizeMinus = document.getElementById('btnSizeMinus');
   const btnSizePlus = document.getElementById('btnSizePlus');
-  const sizeValLabel = document.getElementById('sizeValLabel');
-  const sizePreviewDot = document.getElementById('sizePreviewDot');
-  const sizeIndicatorDot = document.getElementById('sizeIndicatorDot');
 
   // Элементы встроенного QR-сканера
   const scannerModal = document.getElementById('scannerModal');
@@ -63,21 +63,19 @@
   let isNavigating = false;
   let isPenDrawing = false;
 
-  // Hold-to-Straighten
+  // Hold-to-Straighten (выравнивание линии при задержке пера)
   let holdTimer = null;
   let holdStartPoint = null;
   let isLineSnapped = false;
   const HOLD_DURATION_MS = 420;
   const HOLD_DISTANCE_THRESHOLD = 12; // px
 
-  // Сетевое подключение и реал-тайм стриминг
+  // Сетевое подключение
   let peer = null;
   let peerConn = null;
   let localWs = null;
   let isConnected = false;
   let targetSlotId = null;
-  let streamThrottleTimer = null;
-  let hasPendingStream = false;
 
   // Чтение параметров URL и localStorage
   const urlParams = new URLSearchParams(window.location.search);
@@ -192,8 +190,8 @@
     }
 
     if (pts.length === 1) {
-      ctx.beginPath();
       const r = (stroke.baseSize * (pts[0].pressure || 0.5)) / 2;
+      ctx.beginPath();
       ctx.arc(pts[0].x, pts[0].y, Math.max(r, 1), 0, Math.PI * 2);
       ctx.fillStyle = stroke.color;
       ctx.fill();
@@ -227,10 +225,12 @@
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
 
-    // Закрываем окно размера пера при начале рисования
-    sizePopup.classList.remove('open');
-    btnSizeToggle.classList.remove('active');
+    // Закрываем выпадающий ползунок при начале рисования
+    if (sizePopover.classList.contains('open')) {
+      closeSizePopover();
+    }
 
+    // Палец (Touch): Palm rejection и перемещение холста
     if (e.pointerType === 'touch') {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -244,6 +244,7 @@
       return;
     }
 
+    // S Pen (или мышь для тестирования на ПК)
     if (e.pointerType === 'pen' || e.pointerType === 'mouse') {
       isPenDrawing = true;
       isLineSnapped = false;
@@ -307,7 +308,6 @@
         const pts = currentStroke.points;
         pts[pts.length - 1] = { x: worldPos.x, y: worldPos.y, pressure, time: Date.now() };
         redrawCanvas();
-        scheduleRealtimeStream();
         return;
       }
 
@@ -322,7 +322,6 @@
       }
 
       redrawCanvas();
-      scheduleRealtimeStream();
     }
   }
 
@@ -344,8 +343,6 @@
         currentStroke = null;
         redoStack = [];
         redrawCanvas();
-        // Моментально отправляем готовый штрих в реал-тайме
-        sendRealtimeUpdate();
       }
     }
   }
@@ -379,14 +376,82 @@
 
     showToast('Линия выровнена 📏');
     redrawCanvas();
-    sendRealtimeUpdate();
   }
 
   // =========================================================================
-  // Auto-Crop Engine
+  // Управление выпадающим ползунком толщины (больше / меньше)
+  // =========================================================================
+  function updateSize(newSize) {
+    newSize = Math.max(1, Math.min(28, parseInt(newSize, 10) || 4));
+    currentBaseSize = newSize;
+
+    sizeSlider.value = newSize;
+    sizeValText.textContent = newSize + ' px';
+
+    // Обновляем кружки превью
+    sizePreviewDot.style.width = Math.max(newSize, 3) + 'px';
+    sizePreviewDot.style.height = Math.max(newSize, 3) + 'px';
+    sizePreviewDot.style.backgroundColor = currentTool === 'eraser' ? '#ffffff' : currentColor;
+
+    const dotSize = Math.min(Math.max(newSize * 1.5, 4), 18);
+    currentSizeDot.style.width = dotSize + 'px';
+    currentSizeDot.style.height = dotSize + 'px';
+    currentSizeDot.style.backgroundColor = currentTool === 'eraser' ? '#ffffff' : currentColor;
+  }
+
+  function toggleSizePopover() {
+    if (sizePopover.classList.contains('open')) {
+      closeSizePopover();
+    } else {
+      openSizePopover();
+    }
+  }
+
+  function openSizePopover() {
+    updateSize(currentBaseSize);
+    sizePopover.classList.add('open');
+    btnSizeToggle.classList.add('active');
+  }
+
+  function closeSizePopover() {
+    sizePopover.classList.remove('open');
+    btnSizeToggle.classList.remove('active');
+  }
+
+  btnSizeToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleSizePopover();
+  });
+
+  sizeSlider.addEventListener('input', (e) => {
+    updateSize(e.target.value);
+  });
+
+  btnSizeMinus.addEventListener('click', (e) => {
+    e.stopPropagation();
+    updateSize(currentBaseSize - 1);
+    if (navigator.vibrate) navigator.vibrate(10);
+  });
+
+  btnSizePlus.addEventListener('click', (e) => {
+    e.stopPropagation();
+    updateSize(currentBaseSize + 1);
+    if (navigator.vibrate) navigator.vibrate(10);
+  });
+
+  // Закрытие при клике вне меню
+  document.addEventListener('click', (e) => {
+    if (sizePopover.classList.contains('open') && !sizePopover.contains(e.target) && !btnSizeToggle.contains(e.target)) {
+      closeSizePopover();
+    }
+  });
+
+  // =========================================================================
+  // Auto-Crop Engine (Расчет Bounding Box + Padding)
   // =========================================================================
   function exportCroppedPNG() {
-    if (strokes.length === 0 && !currentStroke) {
+    if (strokes.length === 0) {
+      showToast('Нарисуйте заметку перед отправкой');
       return null;
     }
 
@@ -395,9 +460,7 @@
     let maxX = -Infinity;
     let maxY = -Infinity;
 
-    const allStrokes = currentStroke ? [...strokes, currentStroke] : strokes;
-
-    for (const stroke of allStrokes) {
+    for (const stroke of strokes) {
       const strokeHalf = (stroke.baseSize * (stroke.tool === 'highlighter' ? 3 : 1)) / 2;
       const ptsToScan = stroke.isSnapped && stroke.points.length >= 2
         ? [stroke.points[0], stroke.points[stroke.points.length - 1]]
@@ -412,6 +475,7 @@
     }
 
     if (minX === Infinity || maxX <= minX || maxY <= minY) {
+      showToast('Не удалось определить границы рисунка');
       return null;
     }
 
@@ -428,7 +492,7 @@
     offCtx.scale(scaleFactor, scaleFactor);
     offCtx.translate(-minX + padding, -minY + padding);
 
-    for (const stroke of allStrokes) {
+    for (const stroke of strokes) {
       drawStrokeOnContext(offCtx, stroke);
     }
 
@@ -467,8 +531,8 @@
     }
 
     if (pts.length === 1) {
-      tCtx.beginPath();
       const r = (stroke.baseSize * (pts[0].pressure || 0.5)) / 2;
+      tCtx.beginPath();
       tCtx.arc(pts[0].x, pts[0].y, Math.max(r, 1), 0, Math.PI * 2);
       tCtx.fillStyle = stroke.color;
       tCtx.fill();
@@ -487,92 +551,6 @@
     tCtx.stroke();
     tCtx.restore();
   }
-
-  // =========================================================================
-  // Реал-тайм Стриминг заметок в Obsidian
-  // =========================================================================
-  function scheduleRealtimeStream() {
-    if (streamThrottleTimer) {
-      hasPendingStream = true;
-      return;
-    }
-
-    sendRealtimeUpdate();
-
-    streamThrottleTimer = setTimeout(() => {
-      streamThrottleTimer = null;
-      if (hasPendingStream) {
-        hasPendingStream = false;
-        scheduleRealtimeStream();
-      }
-    }, 120); // ~8 FPS для плавного реал-тайм отображения без перегрузки
-  }
-
-  function sendRealtimeUpdate() {
-    const pngData = exportCroppedPNG();
-    if (!pngData) return;
-
-    const payload = {
-      type: 'spen_stream',
-      image: pngData,
-      slotId: targetSlotId,
-      timestamp: Date.now()
-    };
-
-    if (localWs && localWs.readyState === WebSocket.OPEN) {
-      localWs.send(JSON.stringify(payload));
-    } else if (peerConn && peerConn.open) {
-      peerConn.send(payload);
-    }
-  }
-
-  // =========================================================================
-  // Выпадающий ползунок размера пера (Popup Slider)
-  // =========================================================================
-  function setBaseSize(val) {
-    val = Math.max(1, Math.min(28, parseInt(val, 10) || 4));
-    currentBaseSize = val;
-    sizeRange.value = val;
-    sizeValLabel.textContent = val + ' px';
-
-    // Превью круга
-    sizePreviewDot.style.width = Math.max(val * 1.5, 3) + 'px';
-    sizePreviewDot.style.height = Math.max(val * 1.5, 3) + 'px';
-    sizePreviewDot.style.backgroundColor = currentColor;
-
-    // Индикатор в тулбаре
-    const dotSize = Math.min(Math.max(val, 4), 16);
-    sizeIndicatorDot.style.width = dotSize + 'px';
-    sizeIndicatorDot.style.height = dotSize + 'px';
-  }
-
-  btnSizeToggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isOpen = sizePopup.classList.toggle('open');
-    btnSizeToggle.classList.toggle('active', isOpen);
-    setBaseSize(currentBaseSize);
-  });
-
-  sizeRange.addEventListener('input', (e) => {
-    setBaseSize(e.target.value);
-  });
-
-  btnSizeMinus.addEventListener('click', (e) => {
-    e.stopPropagation();
-    setBaseSize(currentBaseSize - 1);
-  });
-
-  btnSizePlus.addEventListener('click', (e) => {
-    e.stopPropagation();
-    setBaseSize(currentBaseSize + 1);
-  });
-
-  document.addEventListener('click', (e) => {
-    if (!sizePopup.contains(e.target) && !btnSizeToggle.contains(e.target)) {
-      sizePopup.classList.remove('open');
-      btnSizeToggle.classList.remove('active');
-    }
-  });
 
   // =========================================================================
   // Встроенный QR-Сканер (Камера)
@@ -643,6 +621,7 @@
         });
         return;
       }
+
       fallbackJsQR();
     } else {
       requestAnimationFrame(scanLoop);
@@ -867,7 +846,7 @@
 
   function handleIncomingData(data) {
     if (data && data.type === 'note_received') {
-      showToast('Зафиксировано в Obsidian! ✨');
+      showToast('Вставлено в заметку Obsidian! ✨');
       btnSend.classList.remove('sending');
       btnSend.querySelector('span').textContent = 'Отправить';
       strokes = [];
@@ -877,14 +856,11 @@
   }
 
   // =========================================================================
-  // Фиксация заметки (кнопка Отправить)
+  // Отправка заметки в Obsidian (кнопка в правом верхнем углу)
   // =========================================================================
   btnSend.addEventListener('click', () => {
     const pngData = exportCroppedPNG();
-    if (!pngData) {
-      showToast('Нарисуйте заметку');
-      return;
-    }
+    if (!pngData) return;
 
     if (!isConnected && !peerConn && !localWs) {
       showToast('Сначала подключитесь к Obsidian');
@@ -893,7 +869,7 @@
     }
 
     btnSend.classList.add('sending');
-    btnSend.querySelector('span').textContent = 'Фиксация...';
+    btnSend.querySelector('span').textContent = 'Отправка...';
 
     const payload = {
       type: 'spen_drawing',
@@ -915,6 +891,7 @@
     }
 
     if (sent) {
+      showToast('Отправка в Obsidian...');
       setTimeout(() => {
         btnSend.classList.remove('sending');
         btnSend.querySelector('span').textContent = 'Отправить';
@@ -934,6 +911,7 @@
       document.querySelectorAll('.tool-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       currentTool = btn.dataset.tool;
+      updateSize(currentBaseSize);
     });
   });
 
@@ -942,11 +920,11 @@
       document.querySelectorAll('.color-dot').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       currentColor = btn.dataset.color;
-      sizePreviewDot.style.backgroundColor = currentColor;
       if (currentTool === 'eraser') {
         const penBtn = document.querySelector('[data-tool="pen"]');
         if (penBtn) penBtn.click();
       }
+      updateSize(currentBaseSize);
     });
   });
 
@@ -954,7 +932,6 @@
     if (strokes.length > 0) {
       redoStack.push(strokes.pop());
       redrawCanvas();
-      sendRealtimeUpdate();
     }
   });
 
@@ -962,7 +939,6 @@
     if (redoStack.length > 0) {
       strokes.push(redoStack.pop());
       redrawCanvas();
-      sendRealtimeUpdate();
     }
   });
 
@@ -972,7 +948,6 @@
       strokes = [];
       redoStack = [];
       redrawCanvas();
-      sendRealtimeUpdate();
     }
   });
 
@@ -1005,6 +980,6 @@
   }
 
   resizeCanvas();
-  setBaseSize(4);
+  updateSize(4);
   initNetworking();
 })();
