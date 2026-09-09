@@ -58,11 +58,17 @@
   let isConnected = false;
   let targetSlotId = null;
 
-  // Чтение параметров URL
+  // Чтение параметров URL и localStorage
   const urlParams = new URLSearchParams(window.location.search);
-  const targetPeerId = urlParams.get('peer');
+  let targetPeerId = urlParams.get('peer');
   const targetWsHost = urlParams.get('ws'); // например, 192.168.1.50:39174
   targetSlotId = urlParams.get('slot');
+
+  if (!targetPeerId) {
+    targetPeerId = localStorage.getItem('last_obsidian_peer_id');
+  } else {
+    localStorage.setItem('last_obsidian_peer_id', targetPeerId);
+  }
 
   // =========================================================================
   // Инициализация Canvas
@@ -728,6 +734,7 @@
   btnManualConnect.addEventListener('click', () => {
     const val = inputPeerId.value.trim();
     if (val) {
+      localStorage.setItem('last_obsidian_peer_id', val);
       connectModal.classList.remove('open');
       connectCloudPeer(val);
     }
