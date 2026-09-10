@@ -707,14 +707,29 @@
   }
 
   // =========================================================================
-  // Сетевое подключение: USB Direct -> Wi-Fi LAN -> PeerJS Cloud P2P
+  // Сетевое подключение: USB Direct -> Wi-Fi LAN -> Robust PeerJS Cloud P2P
   // =========================================================================
+  const ROBUST_ICE_SERVERS = [
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.services.mozilla.com' },
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    { urls: 'stun:stun.nextcloud.com:443' }
+  ];
+
+  let p2pReconnectTimer = null;
+  let p2pHeartbeatTimer = null;
+  let isConnectingP2P = false;
+
   function initNetworking() {
     updateStatus('connecting', 'Поиск Obsidian...');
 
+    // 1. Проверяем прямой USB-кабель через adb reverse (127.0.0.1:39174)
     connectLocalWs('127.0.0.1:39174', true, (usbConnected) => {
       if (usbConnected) return;
 
+      // 2. Если USB не ответил, пробуем переданный Wi-Fi адрес
       if (targetWsHost && targetWsHost !== '127.0.0.1:39174') {
         connectLocalWs(targetWsHost, false, (lanConnected) => {
           if (lanConnected) return;
@@ -724,63 +739,201 @@
         tryCloudP2P();
       }
     });
+
+    // Периодическая проверка USB в фоне (если кабель вставили на лету)
+    setInterval(() => {
+      if (!localWs || localWs.readyState !== WebSocket.OPEN) {
+        checkUsbQuick();
+      }
+    }, 6000);
+  }
+
+  function checkUsbQuick() {
+    try {
+      const testWs = new WebSocket('ws://127.0.0.1:39174');
+      testWs.onopen = () => {
+        localWs = testWs;
+        isConnected = true;
+        updateStatus('connected', 'Obsidian (USB Direct)');
+        showToast('Подключено через USB Direct! ⚡');
+        testWs.onmessage = (event) => {
+          try { handleIncomingData(JSON.parse(event.data)); } catch (e) {}
+        };
+        testWs.onclose = () => {
+          localWs = null;
+          if (!peerConn) {
+            isConnected = false;
+            tryCloudP2P();
+          }
+        };
+      };
+      testWs.onerror = () => {
+        try { testWs.close(); } catch (e) {}
+      };
+    } catch (e) {}
   }
 
   function tryCloudP2P() {
     if (targetPeerId) {
       connectCloudPeer(targetPeerId);
     } else {
-      updateStatus('disconnected', 'Подключить');
+      updateStatus('disconnected', 'Подключить QR');
     }
   }
 
   function connectCloudPeer(targetId) {
+    if (!targetId) return;
+    targetPeerId = targetId;
+
+    if (isConnectingP2P && peerConn && peerConn.open) {
+      return;
+    }
+
+    if (p2pReconnectTimer) {
+      clearTimeout(p2pReconnectTimer);
+      p2pReconnectTimer = null;
+    }
+
     updateStatus('connecting', 'P2P...');
+
     try {
       if (typeof Peer === 'undefined') {
-        updateStatus('disconnected', 'Ошибка Peer');
+        updateStatus('disconnected', 'PeerJS недоступен');
         return;
       }
 
-      if (peer) {
-        try { peer.destroy(); } catch (e) {}
+      // Если peer уже создан и открыт
+      if (peer && !peer.destroyed && !peer.disconnected) {
+        openDataChannel(targetId);
+        return;
       }
 
-      peer = new Peer({ debug: 1 });
+      if (peer && !peer.destroyed && peer.disconnected) {
+        peer.reconnect();
+        openDataChannel(targetId);
+        return;
+      }
+
+      // Создаем новый Peer с надежными STUN серверами
+      peer = new Peer({
+        debug: 1,
+        config: {
+          iceServers: ROBUST_ICE_SERVERS
+        }
+      });
 
       peer.on('open', (id) => {
-        console.log('Mobile Peer ID:', id);
-        const conn = peer.connect(targetId, { reliable: true });
+        console.log('Mobile Peer registered, ID:', id);
+        openDataChannel(targetId);
+      });
 
-        conn.on('open', () => {
-          peerConn = conn;
-          isConnected = true;
-          updateStatus('connected', 'Obsidian (Cloud)');
-          showToast('Подключено к Obsidian! ✨');
-
-          conn.on('data', (data) => {
-            handleIncomingData(data);
-          });
-        });
-
-        conn.on('close', () => {
-          isConnected = false;
-          updateStatus('disconnected', 'Отключено');
-        });
-
-        conn.on('error', (err) => {
-          console.error('Peer conn error:', err);
-          updateStatus('disconnected', 'Сбой связи');
-        });
+      // Переподключение к сигнальному серверу при обрыве связи
+      peer.on('disconnected', () => {
+        console.warn('Mobile Peer disconnected from signaling server. Reconnecting...');
+        setTimeout(() => {
+          if (peer && !peer.destroyed && peer.disconnected) {
+            peer.reconnect();
+          }
+        }, 2000);
       });
 
       peer.on('error', (err) => {
-        console.error('Peer error:', err);
-        updateStatus('disconnected', 'Сбой P2P');
+        console.warn('Mobile Peer error:', err);
+        if (err.type === 'peer-unavailable') {
+          updateStatus('connecting', 'Ожидание Obsidian...');
+          scheduleP2PReconnect(targetId, 4000);
+        } else {
+          updateStatus('disconnected', 'Поиск P2P...');
+          scheduleP2PReconnect(targetId, 3000);
+        }
       });
     } catch (err) {
-      console.error(err);
-      updateStatus('disconnected', 'Ошибка сети');
+      console.error('Error initializing cloud peer:', err);
+      updateStatus('disconnected', 'Ошибка P2P');
+      scheduleP2PReconnect(targetId, 5000);
+    }
+  }
+
+  function openDataChannel(targetId) {
+    if (!peer || peer.destroyed) return;
+    isConnectingP2P = true;
+
+    try {
+      if (peerConn) {
+        try { peerConn.close(); } catch (e) {}
+      }
+
+      const conn = peer.connect(targetId, {
+        reliable: true,
+        serialization: 'json'
+      });
+
+      conn.on('open', () => {
+        console.log('P2P Data Channel successfully OPEN to:', targetId);
+        peerConn = conn;
+        isConnected = true;
+        isConnectingP2P = false;
+        updateStatus('connected', 'Obsidian (Cloud)');
+        showToast('Obsidian подключен (P2P)! ✨');
+
+        startHeartbeat(conn);
+      });
+
+      conn.on('data', (data) => {
+        handleIncomingData(data);
+      });
+
+      conn.on('close', () => {
+        console.warn('P2P Data Channel closed. Auto-reconnecting...');
+        isConnected = false;
+        isConnectingP2P = false;
+        stopHeartbeat();
+        updateStatus('connecting', 'Переподключение...');
+        scheduleP2PReconnect(targetId, 2500);
+      });
+
+      conn.on('error', (err) => {
+        console.warn('P2P Data Channel error:', err);
+        isConnected = false;
+        isConnectingP2P = false;
+        stopHeartbeat();
+        scheduleP2PReconnect(targetId, 3000);
+      });
+    } catch (e) {
+      console.error('Failed to open data channel:', e);
+      scheduleP2PReconnect(targetId, 4000);
+    }
+  }
+
+  function scheduleP2PReconnect(targetId, delayMs) {
+    if (p2pReconnectTimer) clearTimeout(p2pReconnectTimer);
+    p2pReconnectTimer = setTimeout(() => {
+      // Если к этому времени не подключились по USB
+      if (!localWs || localWs.readyState !== WebSocket.OPEN) {
+        console.log('Retrying P2P connection to:', targetId);
+        connectCloudPeer(targetId);
+      }
+    }, delayMs);
+  }
+
+  function startHeartbeat(conn) {
+    stopHeartbeat();
+    // Пинг каждые 9 секунд для поддержания UDP NAT-сопоставлений и мобильных сетей
+    p2pHeartbeatTimer = setInterval(() => {
+      if (conn && conn.open) {
+        try {
+          conn.send({ type: 'ping', time: Date.now() });
+        } catch (e) {}
+      } else {
+        stopHeartbeat();
+      }
+    }, 9000);
+  }
+
+  function stopHeartbeat() {
+    if (p2pHeartbeatTimer) {
+      clearInterval(p2pHeartbeatTimer);
+      p2pHeartbeatTimer = null;
     }
   }
 
@@ -826,9 +979,11 @@
       };
 
       tempWs.onclose = () => {
-        if (!peerConn) {
+        localWs = null;
+        if (!peerConn || !peerConn.open) {
           isConnected = false;
           updateStatus('disconnected', 'Отключено');
+          tryCloudP2P();
         }
       };
     } catch (e) {
@@ -845,7 +1000,21 @@
   }
 
   function handleIncomingData(data) {
-    if (data && data.type === 'note_received') {
+    if (!data) return;
+
+    if (data.type === 'ping') {
+      if (peerConn && peerConn.open) {
+        try { peerConn.send({ type: 'pong' }); } catch (e) {}
+      }
+      return;
+    }
+
+    if (data.type === 'pong') {
+      // Соединение живое
+      return;
+    }
+
+    if (data.type === 'note_received') {
       showToast('Вставлено в заметку Obsidian! ✨');
       btnSend.classList.remove('sending');
       btnSend.querySelector('span').textContent = 'Отправить';
